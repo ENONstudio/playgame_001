@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>三角数字ゲーム</title>
+<style>
+:root{color-scheme:light;--red:#c13d43;--blue:#2865ad;--ink:#292b30;--muted:#656870;--line:#c9ccd1;--paper:#fff;--accent:#785b29}
+*{box-sizing:border-box}body{margin:0;background:#f5f4f0;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;line-height:1.6}main{max-width:540px;margin:24px auto;padding:20px}h1{font-size:24px;margin:0 0 16px}button{font:inherit;cursor:pointer;touch-action:manipulation}button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}.header{display:flex;align-items:center;justify-content:space-between;gap:12px}.reset{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:9px 12px;white-space:nowrap}.players{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}.player{border:2px solid var(--line);border-radius:12px;background:var(--paper);padding:10px;text-align:center}.player.active{border-color:currentColor}.red{color:var(--red)}.blue{color:var(--blue)}.next{font-size:28px;font-weight:800;line-height:1.3}.small{font-size:12px;color:var(--muted)}#status{font-weight:700;min-height:28px;text-align:center}#progress{text-align:center;font-size:13px;color:var(--muted);margin:4px 0 16px}.board{display:flex;flex-direction:column;align-items:center;gap:8px;margin:0 auto 24px;--size:54px;--gap:8px}.row{display:flex;gap:var(--gap)}.cell{width:var(--size);height:var(--size);padding:0;border:2px solid var(--line);border-radius:50%;background:var(--paper);font-size:19px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}.cell:disabled{cursor:default;opacity:1}.cell.red{border-color:var(--red);background:#fff0f0}.cell.blue{border-color:var(--blue);background:#edf4ff}.cell:not(:disabled):active{transform:scale(.93)}.cell.final-empty{border:3px dashed var(--accent);background:#fff4d8;color:var(--accent)}.cell.scoring{outline:3px solid var(--accent);outline-offset:2px}#result{border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:16px;text-align:center;margin-bottom:20px}#winner{font-size:24px;font-weight:800}#score{font-size:20px;margin-top:8px}.calculation{font-size:14px;margin-top:8px;overflow-wrap:anywhere}.rules{border-top:1px solid var(--line);padding-top:16px;font-size:14px;color:var(--muted)}.rules p{margin:6px 0}footer{font-size:12px;color:var(--muted);text-align:center;margin-top:20px}
+@media(max-width:400px){main{margin:8px auto;padding:12px}.board{--size:44px;--gap:5px;gap:7px}h1{font-size:21px}.header{gap:8px}.reset{font-size:14px;padding:8px}.players{margin:14px 0}}
+</style>
+</head>
+<body>
+<main>
+<div class="header"><h1>三角数字ゲーム</h1><button type="button" class="reset" id="reset">最初から</button></div>
+<div class="players">
+<div class="player red active" id="redPlayer"><div>赤</div><div class="next" id="redNext">1</div><div class="small">次の数字</div></div>
+<div class="player blue" id="bluePlayer"><div>青</div><div class="next" id="blueNext">1</div><div class="small">次の数字</div></div>
+</div>
+<div id="status" aria-live="polite">赤の番。「1」を置く○を選んでください。</div>
+<div id="progress">0 / 20 手</div>
+<div class="board" id="board" role="group" aria-label="6段・21個の丸からなる三角形"></div>
+<section id="result" aria-live="polite" hidden><div class="small">最後の空白○に隣接する数字だけを合計</div><div id="winner"></div><div id="score"></div><div id="calculation" class="calculation"></div></section>
+<div class="rules">
+<p>2人で交互に、空いている○を選びます。</p>
+<p>数字はそれぞれ1ずつ増えます。<br>赤1 → 青1 → 赤2 → 青2 → … → 赤10 → 青10。</p>
+<p>20手で終了し、○が1つだけ空白で残ります。その空白に隣接する数字を色別に足し、合計が大きい方の勝ちです。</p>
+</div>
+<footer>2人で同じ画面を使って遊べます。</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const board = $('board');
+  const cells = [];
+  const map = new Map();
+  let moves = 0;
+  let finished = false;
+  for (let r = 0; r < 6; r++) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    for (let c = 0; c <= r; c++) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cell';
+      const cell = { r, c, button, owner: null, value: null };
+      button.addEventListener('click', () => play(cell));
+      row.appendChild(button);
+      cells.push(cell);
+      map.set(`${r},${c}`, cell);
+    }
+    board.appendChild(row);
+  }
+  function adjacent(cell) {
+    const {r,c} = cell;
+    return [[r,c-1],[r,c+1],[r-1,c-1],[r-1,c],[r+1,c],[r+1,c+1]]
+      .map(([rr,cc]) => map.get(`${rr},${cc}`)).filter(Boolean);
+  }
+  function update() {
+    const owner = moves % 2 === 0 ? 'red' : 'blue';
+    const n = Math.floor(moves / 2) + 1;
+    $('redNext').textContent = Math.ceil(moves / 2) >= 10 ? '完了' : Math.ceil(moves / 2) + 1;
+    $('blueNext').textContent = Math.floor(moves / 2) >= 10 ? '完了' : Math.floor(moves / 2) + 1;
+    $('redPlayer').classList.toggle('active', !finished && owner === 'red');
+    $('bluePlayer').classList.toggle('active', !finished && owner === 'blue');
+    $('status').textContent = finished ? 'ゲーム終了' : `${owner === 'red' ? '赤' : '青'}の番。「${n}」を置く○を選んでください。`;
+    $('status').className = finished ? '' : owner;
+    $('progress').textContent = `${moves} / 20 手`;
+  }
+  function play(cell) {
+    if (finished || cell.owner) return;
+    cell.owner = moves % 2 === 0 ? 'red' : 'blue';
+    cell.value = Math.floor(moves / 2) + 1;
+    cell.button.textContent = cell.value;
+    cell.button.classList.add(cell.owner);
+    cell.button.setAttribute('aria-label', `${cell.r+1}段目、左から${cell.c+1}番目、${cell.owner==='red'?'赤':'青'}の${cell.value}`);
+    cell.button.disabled = true;
+    moves++;
+    if (moves === 20) finish();
+    update();
+  }
+  function finish() {
+    finished = true;
+    const empty = cells.find(cell => !cell.owner);
+    const around = adjacent(empty);
+    const values = { red: [], blue: [] };
+    empty.button.classList.add('final-empty');
+    empty.button.textContent = '○';
+    empty.button.setAttribute('aria-label', '最後に残った空白');
+    around.forEach(cell => {
+      cell.button.classList.add('scoring');
+      values[cell.owner].push(cell.value);
+    });
+    const red = values.red.reduce((a,b) => a+b, 0);
+    const blue = values.blue.reduce((a,b) => a+b, 0);
+    cells.forEach(cell => { cell.button.disabled = true; });
+    $('winner').textContent = red > blue ? '赤の勝ち！' : blue > red ? '青の勝ち！' : '引き分け！';
+    $('winner').className = red > blue ? 'red' : blue > red ? 'blue' : '';
+    $('score').textContent = `赤 ${red} 対 青 ${blue}`;
+    $('calculation').replaceChildren();
+    for (const owner of ['red','blue']) {
+      const line = document.createElement('div');
+      line.className = owner;
+      line.textContent = `${owner==='red'?'赤':'青'}：${values[owner].join(' + ') || '0'} = ${owner==='red'?red:blue}`;
+      $('calculation').appendChild(line);
+    }
+    $('result').hidden = false;
+  }
+  function reset() {
+    moves = 0;
+    finished = false;
+    cells.forEach(cell => {
+      cell.owner = null;
+      cell.value = null;
+      cell.button.disabled = false;
+      cell.button.textContent = '';
+      cell.button.className = 'cell';
+      cell.button.setAttribute('aria-label', `${cell.r+1}段目、左から${cell.c+1}番目、空き`);
+    });
+    $('result').hidden = true;
+    update();
+  }
+  $('reset').addEventListener('click', reset);
+  reset();
+})();
+</script>
+</body>
+</html>
